@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <title>رفع الملفات إلى roster-images</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #f3f4f6;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background: #fff;
+      max-width: 600px;
+      width: 100%;
+      padding: 24px;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.08);
+    }
+    h1 { margin: 0 0 8px; text-align: center; }
+    p { margin: 0 0 16px; text-align: center; color: #6b7280; font-size: .9rem; }
+    .dropzone {
+      border: 2px dashed #d1d5db;
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      background: #f9fafb;
+      cursor: pointer;
+      margin-bottom: 12px;
+    }
+    .file-list { font-size: .85rem; max-height: 140px; overflow-y: auto; margin-bottom: 12px; }
+    .file-item { display:flex; justify-content:space-between; padding:6px 8px; border-radius:8px; background:#f3f4f6; margin-bottom:4px; }
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 10px 20px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-upload {
+      background:#2563eb; color:#fff; width:100%;
+    }
+    .btn-upload:disabled { opacity:.5; cursor:not-allowed; }
+    .status { margin-top:10px; font-size:.85rem; min-height:18px; }
+    .status.success { color:#16a34a; }
+    .status.error { color:#dc2626; }
+    input[type="file"] { display:none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>رفع الملفات إلى GitHub</h1>
+    <p>سيتم رفع الملفات مباشرة إلى المستودع <strong>roster-images</strong> في الجذر.</p>
+
+    <div class="dropzone" id="dropzone">
+      اضغط هنا لاختيار الملفات (أو اسحبها وأسقطها)
+      <input type="file" id="fileInput" multiple />
+    </div>
+
+    <div class="file-list" id="fileList"></div>
+
+    <input type="text" id="noteInput" placeholder="ملاحظة للـ commit (اختياري)" style="width:100%; padding:8px 10px; border-radius:10px; border:1px solid #d1d5db; margin-bottom:10px;">
+
+    <button class="btn-upload" id="uploadBtn" disabled>رفع إلى GitHub</button>
+
+    <div class="status" id="statusText"></div>
+  </div>
+
+<script>
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const fileList = document.getElementById('fileList');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const statusText = document.getElementById('statusText');
+  const noteInput = document.getElementById('noteInput');
+
+  let files = [];
+
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    handleFiles(e.dataTransfer.files);
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    handleFiles(e.target.files);
+  });
+
+  function handleFiles(selected) {
+    files = Array.from(selected);
+    fileList.innerHTML = '';
+    files.forEach(f => {
+      const div = document.createElement('div');
+      div.className = 'file-item';
+      div.innerHTML = `<span>${f.name}</span><span>${(f.size/1024).toFixed(1)} KB</span>`;
+      fileList.appendChild(div);
+    });
+    uploadBtn.disabled = files.length === 0;
+    statusText.textContent = '';
+    statusText.className = 'status';
+  }
+
+  function readFileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        // result يكون مثل: data:application/octet-stream;base64,XXXX
+        const base64 = result.split(',')[1];
+        resolve({ name: file.name, content: base64 });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  uploadBtn.addEventListener('click', async () => {
+    if (files.length === 0) return;
+
+    uploadBtn.disabled = true;
+    statusText.textContent = 'جاري رفع الملفات إلى GitHub...';
+    statusText.className = 'status';
+
+    try {
+      const preparedFiles = await Promise.all(files.map(readFileAsBase64));
+
+      const response = await fetch('/.netlify/functions/upload-to-github', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          note: noteInput.value || '',
+          files: preparedFiles
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || 'خطأ غير معروف أثناء الرفع');
+      }
+
+      statusText.textContent = 'تم رفع الملفات بنجاح إلى GitHub ✅';
+      statusText.className = 'status success';
+      files = [];
+      fileList.innerHTML = '';
+      fileInput.value = '';
+      noteInput.value = '';
+      uploadBtn.disabled = true;
+    } catch (err) {
+      console.error(err);
+      statusText.textContent = 'حدث خطأ أثناء الرفع: ' + err.message;
+      statusText.className = 'status error';
+      uploadBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
